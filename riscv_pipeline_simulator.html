@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simulador CPU RISC-V Pipeline de 5 Etapas</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #ffffff;
+      --bg2:      #f5f5f4;
+      --bg3:      #eeede8;
+      --text:     #1a1a18;
+      --text2:    #5f5e5a;
+      --text3:    #888780;
+      --border:   rgba(0,0,0,0.12);
+      --border2:  rgba(0,0,0,0.22);
+      --radius:   8px;
+      --radius-lg:12px;
+      --font:     system-ui, -apple-system, sans-serif;
+      --mono:     'Menlo', 'Consolas', monospace;
+
+      --teal-50:  #E1F5EE; --teal-600:#0F6E56; --teal-800:#085041;
+      --purple-50:#EEEDFE; --purple-600:#534AB7; --purple-800:#3C3489;
+      --coral-50: #FAECE7; --coral-600:#993C1D; --coral-800:#712B13;
+      --red-50:   #FCEBEB; --red-600:  #A32D2D; --red-800:  #791F1F;
+      --amber-50: #FAEEDA; --amber-600:#854F0B; --amber-800:#633806;
+      --green-50: #EAF3DE; --green-600:#3B6D11; --green-800:#27500A;
+      --gray-50:  #F1EFE8; --gray-400: #888780; --gray-600: #5F5E5A;
+
+      --success-bg:   #EAF3DE; --success-text: #27500A; --success-border:#3B6D11;
+      --warning-bg:   #FAEEDA; --warning-text: #633806; --warning-border:#854F0B;
+      --danger-bg:    #FCEBEB; --danger-text:  #791F1F; --danger-border: #A32D2D;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:    #1c1c1a; --bg2: #252523; --bg3: #2e2e2b;
+        --text:  #e8e6de; --text2:#9c9a92; --text3:#6b6a65;
+        --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.18);
+        --teal-50:#04342C; --teal-600:#5DCAA5; --teal-800:#9FE1CB;
+        --purple-50:#26215C; --purple-600:#AFA9EC; --purple-800:#CECBF6;
+        --coral-50:#4A1B0C; --coral-600:#F0997B; --coral-800:#F5C4B3;
+        --red-50:#501313; --red-600:#F09595; --red-800:#F7C1C1;
+        --amber-50:#412402; --amber-600:#EF9F27; --amber-800:#FAC775;
+        --green-50:#173404; --green-600:#97C459; --green-800:#C0DD97;
+        --gray-50:#2C2C2A; --gray-400:#888780; --gray-600:#B4B2A9;
+        --success-bg:#173404; --success-text:#C0DD97; --success-border:#639922;
+        --warning-bg:#412402; --warning-text:#FAC775; --warning-border:#BA7517;
+        --danger-bg:#501313;  --danger-text:#F7C1C1;  --danger-border:#E24B4A;
+      }
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    header {
+      border-bottom: 0.5px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 18px; font-weight: 500; }
+    header p  { font-size: 13px; color: var(--text2); }
+
+    .main { max-width: 960px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }
+
+    .top-bar {
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; margin-bottom: 1.25rem;
+    }
+    select {
+      font-size: 13px; padding: 6px 10px;
+      border-radius: var(--radius); border: 0.5px solid var(--border2);
+      background: var(--bg); color: var(--text); cursor: pointer;
+    }
+    button {
+      font-size: 13px; padding: 6px 14px;
+      border-radius: var(--radius); border: 0.5px solid var(--border2);
+      background: transparent; color: var(--text); cursor: pointer;
+      font-family: var(--font); transition: background 0.15s;
+    }
+    button:hover { background: var(--bg2); }
+    button.primary {
+      background: var(--teal-50); color: var(--teal-800);
+      border-color: var(--teal-600);
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .cycle-badge {
+      margin-left: auto; font-size: 13px; font-weight: 500; color: var(--text2);
+    }
+
+    .section-label {
+      font-size: 12px; font-weight: 500; color: var(--text2);
+      margin-bottom: 8px; margin-top: 1.25rem;
+    }
+
+    .pipeline-wrap { overflow-x: auto; margin-bottom: 0.5rem; }
+    #pipe-svg { min-width: 640px; display: block; }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 10px; margin-bottom: 1rem;
+    }
+    .stat {
+      background: var(--bg2); border-radius: var(--radius);
+      padding: .75rem 1rem;
+    }
+    .stat-label { font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+    .stat-val   { font-size: 20px; font-weight: 500; }
+
+    .timing-wrap { overflow-x: auto; margin-bottom: 1rem; }
+    .timing-table { border-collapse: collapse; font-size: 12px; }
+    .timing-table th, .timing-table td {
+      padding: 5px 9px; border: 0.5px solid var(--border);
+      white-space: nowrap; text-align: center;
+    }
+    .timing-table th {
+      background: var(--bg2); color: var(--text2); font-weight: 500;
+    }
+    .timing-table td:first-child {
+      text-align: left; font-family: var(--mono); font-size: 11px;
+      color: var(--text2); background: var(--bg2); position: sticky; left: 0;
+    }
+
+    .rf-grid {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0,1fr));
+      gap: 6px; margin-bottom: 1rem;
+    }
+    @media(max-width:600px){ .rf-grid{ grid-template-columns: repeat(4,minmax(0,1fr)); } }
+    .rf-cell {
+      background: var(--bg2); border-radius: 6px;
+      padding: 6px 8px; border: 0.5px solid var(--border);
+    }
+    .rf-cell.changed {
+      border-color: var(--success-border); background: var(--success-bg);
+    }
+    .rf-cell.changed .rf-val { color: var(--success-text); }
+    .rf-name { font-size: 11px; color: var(--text2); font-family: var(--mono); }
+    .rf-val  { font-size: 13px; font-weight: 500; }
+
+    .log-box {
+      background: var(--bg2); border-radius: var(--radius);
+      padding: .75rem 1rem; font-size: 12px; font-family: var(--mono);
+      color: var(--text2); max-height: 150px; overflow-y: auto;
+      border: 0.5px solid var(--border);
+    }
+    .log-entry { padding: 3px 0; border-bottom: 0.5px solid var(--border); }
+    .log-entry:last-child { border: none; }
+    .log-entry.hazard { color: var(--warning-text); }
+    .log-entry.wb     { color: var(--success-text); }
+    .log-entry.stall  { color: var(--danger-text); }
+
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin-bottom: 1rem; font-size: 12px;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 5px;
+    }
+    .legend-dot {
+      width: 12px; height: 12px; border-radius: 3px;
+      border: 0.5px solid;
+    }
+
+    footer {
+      text-align: center; font-size: 12px; color: var(--text3);
+      padding: 1rem; border-top: 0.5px solid var(--border);
+      margin-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Simulador CPU RISC-V — Pipeline de 5 etapas</h1>
+    <p>IF &rarr; ID &rarr; EX &rarr; MEM &rarr; WB &nbsp;|&nbsp; Forwarding, Stalls, Branch Flush</p>
+  </div>
+</header>
+
+<div class="main">
+
+  <div class="top-bar">
+    <select id="prog-sel" onchange="loadProgram(this.value)">
+      <option value="0">Programa 1 — suma secuencial (sin hazards)</option>
+      <option value="1">Programa 2 — data hazard + forwarding</option>
+      <option value="2">Programa 3 — load-use hazard (stall)</option>
+      <option value="3">Programa 4 — branch hazard (flush)</option>
+    </select>
+    <button class="primary" onclick="stepCycle()" id="btn-step">&#9654; Siguiente ciclo</button>
+    <button onclick="runAll()" id="btn-run">&#9654;&#9654; Ejecutar todo</button>
+    <button onclick="resetSim()">&#8635; Reiniciar</button>
+    <span class="cycle-badge" id="cycle-label">Ciclo 0</span>
+  </div>
+
+  <div class="section-label">Datapath — estado del pipeline</div>
+  <div class="pipeline-wrap">
+    <svg id="pipe-svg" width="100%" viewBox="0 0 660 130" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot" style="background:var(--teal-50);border-color:var(--teal-600)"></span>IF / ID / WB</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--purple-50);border-color:var(--purple-600)"></span>EX</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--coral-50);border-color:var(--coral-600)"></span>MEM</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--green-50);border-color:var(--green-600)"></span>EX* forwarding</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--red-50);border-color:var(--red-600)"></span>STALL (burbuja)</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--amber-50);border-color:var(--amber-600)"></span>FLUSH (branch)</span>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat"><div class="stat-label">Ciclos totales</div><div class="stat-val" id="s-cycles">0</div></div>
+    <div class="stat"><div class="stat-label">Instrucciones completadas</div><div class="stat-val" id="s-instr">0</div></div>
+    <div class="stat"><div class="stat-label">Stalls insertados</div><div class="stat-val" id="s-stalls">0</div></div>
+    <div class="stat"><div class="stat-label">CPI actual</div><div class="stat-val" id="s-cpi">—</div></div>
+  </div>
+
+  <div class="section-label">Diagrama de tiempo</div>
+  <div class="timing-wrap">
+    <table class="timing-table">
+      <thead id="timing-head"></thead>
+      <tbody id="timing-body"></tbody>
+    </table>
+  </div>
+
+  <div class="section-label">Register File (x0 – x15)</div>
+  <div class="rf-grid" id="rf-grid"></div>
+
+  <div class="section-label">Log de eventos</div>
+  <div class="log-box" id="log-box"><span style="color:var(--text3)">Sin eventos aún...</span></div>
+
+</div>
+
+<footer>Simulador RISC-V Pipeline 5 etapas &mdash; Arquitectura de Computadoras</footer>
+
+<script>
+const PROGRAMS = [
+  {
+    name: "Suma secuencial",
+    instrs: [
+      {asm:"addi x1, x0, 5",  op:"ADDI", rd:1,  rs1:0, rs2:-1, imm:5,  type:"I"},
+      {asm:"addi x2, x0, 10", op:"ADDI", rd:2,  rs1:0, rs2:-1, imm:10, type:"I"},
+      {asm:"addi x3, x0, 15", op:"ADDI", rd:3,  rs1:0, rs2:-1, imm:15, type:"I"},
+      {asm:"add  x4, x1, x2", op:"ADD",  rd:4,  rs1:1, rs2:2,  imm:0,  type:"R"},
+      {asm:"add  x5, x4, x3", op:"ADD",  rd:5,  rs1:4, rs2:3,  imm:0,  type:"R"},
+    ]
+  },
+  {
+    name: "Data hazard + forwarding",
+    instrs: [
+      {asm:"addi x1, x0, 7",  op:"ADDI", rd:1, rs1:0, rs2:-1, imm:7,  type:"I"},
+      {asm:"add  x2, x1, x1", op:"ADD",  rd:2, rs1:1, rs2:1,  imm:0,  type:"R"},
+      {asm:"add  x3, x2, x1", op:"ADD",  rd:3, rs1:2, rs2:1,  imm:0,  type:"R"},
+      {asm:"addi x4, x3, 1",  op:"ADDI", rd:4, rs1:3, rs2:-1, imm:1,  type:"I"},
+    ]
+  },
+  {
+    name: "Load-use hazard (stall)",
+    instrs: [
+      {asm:"addi x1, x0, 4",  op:"ADDI", rd:1,  rs1:0, rs2:-1, imm:4, type:"I"},
+      {asm:"lw   x2, 0(x1)",  op:"LW",   rd:2,  rs1:1, rs2:-1, imm:0, type:"L"},
+      {asm:"add  x3, x2, x1", op:"ADD",  rd:3,  rs1:2, rs2:1,  imm:0, type:"R"},
+      {asm:"addi x4, x3, 2",  op:"ADDI", rd:4,  rs1:3, rs2:-1, imm:2, type:"I"},
+    ]
+  },
+  {
+    name: "Branch hazard (flush)",
+    instrs: [
+      {asm:"addi x1, x0, 1",  op:"ADDI", rd:1,  rs1:0, rs2:-1, imm:1,  type:"I"},
+      {asm:"addi x2, x0, 1",  op:"ADDI", rd:2,  rs1:0, rs2:-1, imm:1,  type:"I"},
+      {asm:"beq  x1, x2, +8", op:"BEQ",  rd:-1, rs1:1, rs2:2,  imm:8,  type:"B"},
+      {asm:"addi x9, x0, 99", op:"ADDI", rd:9,  rs1:0, rs2:-1, imm:99, type:"I"},
+      {asm:"addi x3, x0, 42", op:"ADDI", rd:3,  rs1:0, rs2:-1, imm:42, type:"I"},
+    ]
+  }
+];
+
+const STAGE_NAMES = ["IF","ID","EX","MEM","WB"];
+const REG_NAMES = Array.from({length:16},(_,i)=>`x${i}`);
+
+function getColors(type) {
+  const s = getComputedStyle(document.documentElement);
+  const g = k => s.getPropertyValue(k).trim();
+  const map = {
+    IF:    { fill:g('--teal-50'),   stroke:g('--teal-600'),   text:g('--teal-800')   },
+    ID:    { fill:g('--teal-50'),   stroke:g('--teal-600'),   text:g('--teal-800')   },
+    EX:    { fill:g('--purple-50'), stroke:g('--purple-600'), text:g('--purple-800') },
+    MEM:   { fill:g('--coral-50'),  stroke:g('--coral-600'),  text:g('--coral-800')  },
+    WB:    { fill:g('--teal-50'),   stroke:g('--teal-600'),   text:g('--teal-800')   },
+    STALL: { fill:g('--red-50'),    stroke:g('--red-600'),    text:g('--red-800')    },
+    FLUSH: { fill:g('--amber-50'),  stroke:g('--amber-600'),  text:g('--amber-800')  },
+    FWD:   { fill:g('--green-50'),  stroke:g('--green-600'),  text:g('--green-800')  },
+    EMPTY: { fill:g('--gray-50'),   stroke:g('--gray-400'),   text:g('--gray-600')   },
+  };
+  return map[type] || map.EMPTY;
+}
+
+let prog, regs, mem, cycle, pc, pipeline, timingLog, stalls, completed, log, lastChanged;
+
+function loadProgram(idx) {
+  prog = PROGRAMS[+idx];
+  resetSim();
+}
+
+function resetSim() {
+  regs = new Array(32).fill(0);
+  mem  = new Array(64).fill(0);
+  cycle = 0; pc = 0; stalls = 0; completed = 0;
+  pipeline = Array(5).fill(null).map(() => ({stage:null, instr:null, extra:""}));
+  timingLog = [];
+  log = [];
+  lastChanged = new Set();
+  document.getElementById('btn-step').disabled = false;
+  document.getElementById('btn-run').disabled  = false;
+  renderAll();
+}
+
+function aluResult(instr) {
+  if (!instr) return 0;
+  const a = regs[instr.rs1] || 0;
+  const b = instr.rs2 >= 0 ? regs[instr.rs2] || 0 : instr.imm;
+  switch (instr.op) {
+    case "ADD": case "ADDI": return a + b;
+    case "SUB":  return a - b;
+    case "AND":  return a & b;
+    case "OR":   return a | b;
+    case "LW": case "SW": return a + instr.imm;
+    case "BEQ":  return a === b ? 1 : 0;
+    default:     return 0;
+  }
+}
+
+function checkForward(ex_instr, prev_rd) {
+  if (!ex_instr || prev_rd <= 0) return false;
+  return ex_instr.rs1 === prev_rd || ex_instr.rs2 === prev_rd;
+}
+
+function stepCycle() {
+  cycle++;
+  lastChanged = new Set();
+  const entries = [];
+  const newPipe = Array(5).fill(null).map(() => ({stage:null,instr:null,extra:""}));
+
+  const WB_i  = pipeline[4].instr;
+  const MEM_i = pipeline[3].instr;
+  const EX_i  = pipeline[2].instr;
+  const ID_i  = pipeline[1].instr;
+
+  let stall_now = false;
+  let flush_now = false;
+
+  if (EX_i && EX_i.op === "BEQ" && aluResult(EX_i) === 1) {
+    flush_now = true;
+    entries.push({t:"hazard", msg:`Ciclo ${cycle}: BRANCH tomado — flush (2 instrucciones descartadas)`});
+  }
+
+  if (!flush_now && ID_i && EX_i && EX_i.op === "LW" && EX_i.rd > 0 &&
+      (ID_i.rs1 === EX_i.rd || ID_i.rs2 === EX_i.rd)) {
+    stall_now = true;
+    stalls++;
+    entries.push({t:"stall", msg:`Ciclo ${cycle}: LOAD-USE hazard — stall insertado`});
+  }
+
+  if (WB_i && WB_i.rd > 0) {
+    let val = WB_i.op === "LW" ? (mem[aluResult(WB_i)] || 0) : aluResult(WB_i);
+    if (WB_i.op === "SW") { mem[aluResult(WB_i)] = regs[WB_i.rs2] || 0; }
+    else { regs[WB_i.rd] = val; lastChanged.add(WB_i.rd); }
+    entries.push({t:"wb", msg:`Ciclo ${cycle}: WB — x${WB_i.rd} = ${val}  (${WB_i.asm})`});
+    completed++;
+  } else if (WB_i && WB_i.op === "SW") {
+    mem[aluResult(WB_i)] = regs[WB_i.rs2] || 0;
+    completed++;
+  } else if (WB_i && WB_i.op === "BEQ") {
+    completed++;
+  }
+
+  if (stall_now) {
+    newPipe[4] = {...pipeline[3]};
+    newPipe[3] = {...pipeline[2]};
+    newPipe[2] = {stage:"EX",  instr:null, extra:"STALL"};
+    newPipe[1] = {...pipeline[1]};
+    newPipe[0] = {...pipeline[0]};
+  } else if (flush_now) {
+    newPipe[4] = {...pipeline[3]};
+    newPipe[3] = {...pipeline[2]};
+    const ni = pc < prog.instrs.length ? prog.instrs[pc++] : null;
+    newPipe[2] = {stage:"EX",  instr:ni,   extra:""};
+    newPipe[1] = {stage:"ID",  instr:null, extra:"FLUSH"};
+    newPipe[0] = {stage:"IF",  instr:null, extra:"FLUSH"};
+  } else {
+    newPipe[4] = {...pipeline[3]};
+    newPipe[3] = {...pipeline[2]};
+    newPipe[2] = {...pipeline[1]};
+    newPipe[1] = {...pipeline[0]};
+    const ni = pc < prog.instrs.length ? prog.instrs[pc++] : null;
+    newPipe[0] = ni ? {stage:"IF", instr:ni, extra:""} : {stage:null,instr:null,extra:""};
+  }
+
+  const ex2      = newPipe[2].instr;
+  const exRd     = newPipe[3].instr ? newPipe[3].instr.rd : -1;
+  const memRd    = newPipe[4].instr ? newPipe[4].instr.rd : -1;
+
+  if (ex2 && newPipe[2].extra !== "STALL" && checkForward(ex2, exRd)) {
+    newPipe[2].extra = "FWD";
+    entries.push({t:"hazard", msg:`Ciclo ${cycle}: FORWARDING EX→EX — x${exRd} reenviado a ALU`});
+  } else if (ex2 && newPipe[2].extra !== "STALL" && checkForward(ex2, memRd)) {
+    newPipe[2].extra = "FWD";
+    entries.push({t:"hazard", msg:`Ciclo ${cycle}: FORWARDING MEM→EX — x${memRd} reenviado a ALU`});
+  }
+
+  pipeline = newPipe;
+
+  timingLog.push({
+    cycle,
+    stages: pipeline.map((p, i) => {
+      if (p.extra === "STALL") return "STALL";
+      if (p.extra === "FLUSH") return "FLUSH";
+      if (p.extra === "FWD")   return STAGE_NAMES[i] + "*";
+      if (p.instr)             return STAGE_NAMES[i];
+      return "";
+    })
+  });
+
+  for (const e of entries) log.unshift(e);
+
+  const done = pipeline.every(p => !p.instr && !p.extra) && pc >= prog.instrs.length;
+  if (done) {
+    document.getElementById('btn-step').disabled = true;
+    document.getElementById('btn-run').disabled  = true;
+    log.unshift({t:"wb", msg:`Simulacion completada en ${cycle} ciclos.`});
+  }
+  renderAll();
+}
+
+function runAll() {
+  let guard = 0;
+  while (guard++ < 300) {
+    const done = pipeline.every(p => !p.instr && !p.extra) && pc >= prog.instrs.length;
+    if (done) break;
+    stepCycle();
+  }
+}
+
+function renderAll() {
+  document.getElementById('cycle-label').textContent = `Ciclo ${cycle}`;
+  document.getElementById('s-cycles').textContent = cycle;
+  document.getElementById('s-instr').textContent  = completed;
+  document.getElementById('s-stalls').textContent = stalls;
+  document.getElementById('s-cpi').textContent    = completed > 0 ? (cycle / completed).toFixed(2) : "—";
+  renderPipeline();
+  renderTiming();
+  renderRF();
+  renderLog();
+}
+
+function renderPipeline() {
+  const svg = document.getElementById('pipe-svg');
+  const boxW = 100, boxH = 64, gap = 16, regW = 12, startX = 14, y = 36;
+  let html = `<defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round"/></marker></defs>`;
+
+  let cx = startX;
+  const pos = [];
+  for (let i = 0; i < 5; i++) { pos.push(cx); cx += boxW + regW + gap; }
+
+  for (let i = 0; i < 5; i++) {
+    const p   = pipeline[i];
+    const x   = pos[i];
+    let ctype = STAGE_NAMES[i];
+    if (p.extra === "STALL") ctype = "STALL";
+    else if (p.extra === "FLUSH") ctype = "FLUSH";
+    else if (p.extra === "FWD")   ctype = "FWD";
+    else if (!p.instr) ctype = "EMPTY";
+
+    const col = getColors(ctype);
+    let label = (ctype === "STALL" || ctype === "FLUSH") ? ctype : STAGE_NAMES[i];
+    let sub   = p.instr ? (p.instr.asm.length > 14 ? p.instr.asm.slice(0,13)+"…" : p.instr.asm) : (ctype==="STALL"?"burbuja":ctype==="FLUSH"?"descartada":"—");
+
+    html += `<rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="8" fill="${col.fill}" stroke="${col.stroke}" stroke-width="0.5"/>`;
+    html += `<text x="${x+boxW/2}" y="${y+22}" text-anchor="middle" font-size="13" font-weight="500" fill="${col.text}" font-family="system-ui,sans-serif">${label}${p.extra==="FWD"?"*":""}</text>`;
+    html += `<text x="${x+boxW/2}" y="${y+42}" text-anchor="middle" font-size="10" fill="${col.text}" font-family="system-ui,sans-serif" opacity="0.85">${sub}</text>`;
+
+    if (i < 4) {
+      const rx = x + boxW;
+      html += `<rect x="${rx}" y="${y+8}" width="${regW}" height="${boxH-16}" rx="3" fill="#D3D1C7" stroke="#B4B2A9" stroke-width="0.5"/>`;
+      html += `<line x1="${rx+regW}" y1="${y+boxH/2}" x2="${rx+regW+gap-4}" y2="${y+boxH/2}" stroke="#888780" stroke-width="1" marker-end="url(#arr)"/>`;
+    }
+  }
+
+  let svgH = 110;
+  if (pipeline[2].extra === "FWD") {
+    const exX  = pos[2] + boxW/2;
+    const memX = pos[3] + boxW/2;
+    const fy   = y + boxH + 14;
+    html += `<path d="M${memX} ${y+boxH} L${memX} ${fy} L${exX} ${fy} L${exX} ${y+boxH}" stroke="#3B6D11" stroke-width="1.5" stroke-dasharray="4 2" fill="none" marker-end="url(#arr)"/>`;
+    html += `<text x="${(exX+memX)/2}" y="${fy+12}" text-anchor="middle" font-size="10" fill="#3B6D11" font-family="system-ui,sans-serif">forwarding</text>`;
+    svgH = 135;
+  }
+
+  svg.setAttribute("viewBox", `0 0 660 ${svgH}`);
+  svg.innerHTML = html;
+}
+
+function renderTiming() {
+  const head = document.getElementById('timing-head');
+  const body = document.getElementById('timing-body');
+  const maxC = Math.max(timingLog.length, 1);
+
+  let th = "<tr><th>Instruccion</th>";
+  for (let c = 1; c <= maxC; c++) th += `<th>C${c}</th>`;
+  th += "</tr>";
+  head.innerHTML = th;
+
+  let rows = "";
+  for (let i = 0; i < prog.instrs.length; i++) {
+    rows += `<tr><td>${prog.instrs[i].asm}</td>`;
+    for (let c = 0; c < maxC; c++) {
+      const cell = timingLog[c] ? timingLog[c].stages[i] || "" : "";
+      let style = "";
+      const cs = getComputedStyle(document.documentElement);
+      const g  = k => cs.getPropertyValue(k).trim();
+      if      (cell === "STALL") style = `background:${g('--red-50')};color:${g('--red-800')}`;
+      else if (cell === "FLUSH") style = `background:${g('--amber-50')};color:${g('--amber-800')}`;
+      else if (cell.includes("*")) style = `background:${g('--green-50')};color:${g('--green-800')}`;
+      else if (cell==="IF"||cell==="ID"||cell==="WB") style = `background:${g('--teal-50')};color:${g('--teal-800')}`;
+      else if (cell==="EX")  style = `background:${g('--purple-50')};color:${g('--purple-800')}`;
+      else if (cell==="MEM") style = `background:${g('--coral-50')};color:${g('--coral-800')}`;
+      rows += `<td style="${style};font-weight:${cell?'500':'400'}">${cell}</td>`;
+    }
+    rows += "</tr>";
+  }
+  body.innerHTML = rows;
+}
+
+function renderRF() {
+  const g = document.getElementById('rf-grid');
+  g.innerHTML = Array.from({length:16}, (_,i) => {
+    const changed = lastChanged.has(i);
+    return `<div class="rf-cell${changed?' changed':''}">
+      <div class="rf-name">${REG_NAMES[i]}</div>
+      <div class="rf-val">${regs[i]}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLog() {
+  const b = document.getElementById('log-box');
+  b.innerHTML = log.length
+    ? log.slice(0,30).map(e=>`<div class="log-entry ${e.t}">${e.msg}</div>`).join('')
+    : `<span style="color:var(--text3)">Sin eventos aun...</span>`;
+}
+
+loadProgram(0);
+</script>
+</body>
+</html>
